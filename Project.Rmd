@@ -1,0 +1,103 @@
+---
+title: "Personal Activity Prediction Project"
+author: "Xin Y. Gao"
+date: "November 28, 2017"
+output: html_document
+---
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Executive summary
+The analyst downloaded and imported data into R, did a basic data cleaning to remove the NAs and blanks, and prepared the training and testing sets. In the model selection section, the analyst fitted three models: classification tree, boosting and random forest. The random forest model gave the best prediction accuracy rate. Using the random forest model, the analyst predicted the manner in which the 20 test cases did the exercise.
+
+# Download and import data
+Downloaded data to the working directory and imported them into R. The data had a lot of columns that were blank or NA. Treated NAs and blanks as NA. 
+```{r}
+# training data
+fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl1, destfile = "./training.csv")
+training <- read.csv("./training.csv", na.strings = c("", "NA")) 
+# test data
+fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl2, destfile = "./testing.csv")
+testing <- read.csv("./testing.csv", na.strings = c("", "NA")) 
+```
+# Data cleaning
+```{r}
+dim(training)
+```
+```{r, results='hide'}
+str(training, list.len = 160)
+```
+```{r}
+# Remove the columns that have all NAs.
+training <- training[, colSums(is.na(training))==0]
+testing <- testing[, colSums(is.na(testing))==0]
+```
+# Prepare the training and validation sets; set cross-validation
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+set.seed(3443)
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = F)
+Train <- training[inTrain,]
+Validation <- training[-inTrain,]
+
+# Set cross validation. 
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = T)
+
+# The first seven variables captured the demographic information of the participants which are not related to belt, forearm, arm and dumbell. Those variables are removed from the Train, Validation and testing set.
+testing <- testing[,-c(1:7)]
+Train <- Train[,-c(1:7)]
+Validation <- Validation[,-c(1:7)]
+```
+# Model selection
+Three models were fitted in this section:
+
+1. Classification tree
+2. Boosting
+3. Random forest
+
+The final model was selected based on the model accuracy rate.
+```{r, message=FALSE, warning=FALSE}
+# Improve the performance of the caret::train() function by using the parallel package. See details here https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1) 
+registerDoParallel(cluster)
+```
+## 1. Classification tree model
+```{r, message=FALSE}
+mod_ct <- train(classe ~ ., method = "rpart", data = Train, trControl = fitControl)
+confusionMatrix(Validation$classe, predict(mod_ct, Validation))$overall[1]
+plot(mod_ct$finalModel, uniform = T, main="Classification Tree")
+text(mod_ct$finalModel, use.n=T, all = T, cex = 0.8)
+```
+
+## 2. Boosted trees model
+```{r, message=FALSE, warning=FALSE}
+mod_gbm <- train(classe ~ ., method = "gbm", data = Train, verbose = F, trControl = fitControl)
+confusionMatrix(Validation$classe, predict(mod_gbm, Validation))$overall[1]
+plot(mod_gbm$finalModel)
+```
+
+## 3. Random forest model
+```{r, message=FALSE, warning=FALSE}
+mod_rf <- train(classe ~ ., method = "rf", data = Train, trControl = fitControl)
+confusionMatrix(Validation$classe, predict(mod_rf, Validation))$overall[1]
+confusionMatrix(Validation$classe, predict(mod_rf, Validation))
+plot(mod_rf$finalModel)
+```
+
+# Conclusion
+## Model selection
+The accuracy from the random forest model is 0.993 (95% CI (0.99, 0.9946)) which is the highest among all three models. Therefore, the random forest model was selected as the final prediction model.
+
+## Out of sample error
+The expected out of sample error is 1-accuracy in the cross-validated data. The accuracy from the random forest model is 0.993. Thus, the expected out of sample error is 0.007 (0.7%). With this out of sample error, we can expect that very few test cases would be mis-predicted.
+
+## Predict on the test data
+```{r}
+predictions <- predict(mod_rf, testing)
+testing$predictions <- predictions
+predictions
+```
